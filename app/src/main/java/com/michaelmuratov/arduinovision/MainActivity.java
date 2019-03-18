@@ -27,6 +27,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Matrix;
 import android.os.Bundle;
 import android.os.Environment;
 import android.support.v4.app.ActivityCompat;
@@ -48,7 +49,7 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
     private Mat                  mRgba;
     private Scalar               mBlobColorRgba;
     private Scalar               mBlobColorHsv;
-    private ColorBlobDetector mDetector;
+    //private ColorBlobDetector    mDetector;
     private Mat                  mSpectrum;
     private Size                 SPECTRUM_SIZE;
     private Scalar               CONTOUR_COLOR;
@@ -133,7 +134,7 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
 
     public void onCameraViewStarted(int width, int height) {
         mRgba = new Mat(height, width, CvType.CV_8UC4);
-        mDetector = new ColorBlobDetector();
+        //mDetector = new ColorBlobDetector();
         mSpectrum = new Mat();
         mBlobColorRgba = new Scalar(255);
         mBlobColorHsv = new Scalar(255);
@@ -183,9 +184,9 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
         Log.i(TAG, "Touched rgba color: (" + mBlobColorRgba.val[0] + ", " + mBlobColorRgba.val[1] +
                 ", " + mBlobColorRgba.val[2] + ", " + mBlobColorRgba.val[3] + ")");
 
-        mDetector.setHsvColor(mBlobColorHsv);
+        //mDetector.setHsvColor(mBlobColorHsv);
 
-        Imgproc.resize(mDetector.getSpectrum(), mSpectrum, SPECTRUM_SIZE, 0, 0, Imgproc.INTER_LINEAR_EXACT);
+        //Imgproc.resize(mDetector.getSpectrum(), mSpectrum, SPECTRUM_SIZE, 0, 0, Imgproc.INTER_LINEAR_EXACT);
 
         mIsColorSelected = true;
 
@@ -205,16 +206,25 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
 
         mRgba = mRgbaT;
 */
+
+        Matrix matrix = new Matrix();
+        matrix.preRotate(90);
+
+
         final Bitmap bitmap =
                 Bitmap.createBitmap(mRgba.cols(), mRgba.rows(), Bitmap.Config.RGB_565);
         Utils.matToBitmap(mRgba, bitmap);
 
+        final Bitmap scaled_bitmap = Bitmap.createScaledBitmap(bitmap, 50, 50, false);
+
+        final Bitmap new_bitmap = Bitmap.createBitmap(scaled_bitmap, 0,0,scaled_bitmap.getWidth(),scaled_bitmap.getHeight(),matrix,false);
+        /*
         String path = Environment.getExternalStorageDirectory().toString();
         OutputStream fOut = null;
         File file = new File(path, "/CapturePictures/"+counter+".jpg"); // the File to save , append increasing numeric counter to prevent files from getting overwritten.
         try {
             fOut = new FileOutputStream(file);
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fOut); // saving the Bitmap to a file compressed as a JPEG with 85% compression rate
+            new_bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fOut); // saving the Bitmap to a file compressed as a JPEG with 85% compression rate
             fOut.flush(); // Not really required
             fOut.close(); // do not forget to close the stream
         } catch (FileNotFoundException e) {
@@ -222,7 +232,7 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
         } catch (IOException e) {
             e.printStackTrace();
         }
-
+        */
 
         runOnUiThread(new Runnable() {
             @Override
@@ -235,10 +245,10 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
         counter++;
 
         if (mIsColorSelected) {
-            mDetector.process(mRgba);
-            List<MatOfPoint> contours = mDetector.getContours();
-            Log.e(TAG, "Contours count: " + contours.size());
-            Imgproc.drawContours(mRgba, contours, -1, CONTOUR_COLOR);
+            //mDetector.process(mRgba);
+            //List<MatOfPoint> contours = mDetector.getContours();
+            //Log.e(TAG, "Contours count: " + contours.size());
+            //Imgproc.drawContours(mRgba, contours, -1, CONTOUR_COLOR);
 
             Mat colorLabel = mRgba.submat(4, 68, 4, 68);
             colorLabel.setTo(mBlobColorRgba);
