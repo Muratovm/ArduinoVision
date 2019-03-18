@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent" >
 
@@ -8,5 +9,20 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:id="@+id/color_blob_detection_activity_surface_view" />
+
+    <ImageView
+        android:id="@+id/thumbImage"
+        android:layout_width="140dp"
+        android:layout_height="160dp" />
+
+    <TextView
+        android:id="@+id/output"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="100dp"
+        android:layout_marginTop="100dp"
+        android:text="Direction: "
+        android:textColor="@color/colorPrimary"
+        android:visibility="visible" />
 
 </FrameLayout>

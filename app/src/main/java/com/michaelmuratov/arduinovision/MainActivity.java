@@ -1,11 +1,20 @@
 package com.michaelmuratov.arduinovision;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.List;
 
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
@@ -17,10 +26,16 @@ import org.opencv.android.CameraBridgeViewBase;
 import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
 import org.opencv.imgproc.Imgproc;
 
+import org.tensorflow.lite.Interpreter;
+
 import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
+import android.content.res.AssetFileDescriptor;
+import android.graphics.Bitmap;
+import android.graphics.Matrix;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.util.Log;
@@ -30,6 +45,9 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.View.OnTouchListener;
 import android.view.SurfaceView;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.TextView;
 
 public class MainActivity extends Activity implements OnTouchListener, CvCameraViewListener2 {
     private static final String  TAG              = "MainActivity";
@@ -38,10 +56,15 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
     private Mat                  mRgba;
     private Scalar               mBlobColorRgba;
     private Scalar               mBlobColorHsv;
-    private ColorBlobDetector mDetector;
+    //private ColorBlobDetector    mDetector;
     private Mat                  mSpectrum;
     private Size                 SPECTRUM_SIZE;
     private Scalar               CONTOUR_COLOR;
+    ImageView image;
+    TextView output;
+    Interpreter tflite;
+
+    Integer counter = 0;
 
     private CameraBridgeViewBase mOpenCvCameraView;
 
@@ -72,7 +95,6 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
     public void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "called onCreate");
         super.onCreate(savedInstanceState);
-
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_DENIED){
             ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.CAMERA}, 0);
@@ -87,6 +109,15 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
         mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.color_blob_detection_activity_surface_view);
         mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
+
+
+        image = findViewById(R.id.thumbImage);
+        output = findViewById(R.id.output);
+        try{
+            tflite = new Interpreter(loadModelFile());
+        }catch (Exception e){
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -118,7 +149,7 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
 
     public void onCameraViewStarted(int width, int height) {
         mRgba = new Mat(height, width, CvType.CV_8UC4);
-        mDetector = new ColorBlobDetector();
+        //mDetector = new ColorBlobDetector();
         mSpectrum = new Mat();
         mBlobColorRgba = new Scalar(255);
         mBlobColorHsv = new Scalar(255);
@@ -168,9 +199,9 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
         Log.i(TAG, "Touched rgba color: (" + mBlobColorRgba.val[0] + ", " + mBlobColorRgba.val[1] +
                 ", " + mBlobColorRgba.val[2] + ", " + mBlobColorRgba.val[3] + ")");
 
-        mDetector.setHsvColor(mBlobColorHsv);
+        //mDetector.setHsvColor(mBlobColorHsv);
 
-        Imgproc.resize(mDetector.getSpectrum(), mSpectrum, SPECTRUM_SIZE, 0, 0, Imgproc.INTER_LINEAR_EXACT);
+        //Imgproc.resize(mDetector.getSpectrum(), mSpectrum, SPECTRUM_SIZE, 0, 0, Imgproc.INTER_LINEAR_EXACT);
 
         mIsColorSelected = true;
 
@@ -181,13 +212,23 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
     }
 
     public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
+
         mRgba = inputFrame.rgba();
+/*
+        Mat mRgbaT = mRgba.t();
+        Core.flip(mRgba.t(), mRgbaT, 1);
+        Imgproc.resize(mRgbaT, mRgbaT, mRgba.size());
+
+        mRgba = mRgbaT;
+*/
+
+        counter++;
 
         if (mIsColorSelected) {
-            mDetector.process(mRgba);
-            List<MatOfPoint> contours = mDetector.getContours();
-            Log.e(TAG, "Contours count: " + contours.size());
-            Imgproc.drawContours(mRgba, contours, -1, CONTOUR_COLOR);
+            //mDetector.process(mRgba);
+            //List<MatOfPoint> contours = mDetector.getContours();
+            //Log.e(TAG, "Contours count: " + contours.size());
+            //Imgproc.drawContours(mRgba, contours, -1, CONTOUR_COLOR);
 
             Mat colorLabel = mRgba.submat(4, 68, 4, 68);
             colorLabel.setTo(mBlobColorRgba);
@@ -197,7 +238,66 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
         }
         Mat grayImage = new Mat();
         Imgproc.cvtColor(mRgba, grayImage, Imgproc.COLOR_BGR2GRAY);
+
+        Matrix matrix = new Matrix();
+        matrix.preRotate(90);
+
+
+        final Bitmap bitmap =
+                Bitmap.createBitmap(grayImage.cols(), grayImage.rows(), Bitmap.Config.RGB_565);
+        Utils.matToBitmap(grayImage, bitmap);
+
+        final Bitmap scaled_bitmap = Bitmap.createScaledBitmap(bitmap, 50, 50, false);
+
+        final Bitmap new_bitmap = Bitmap.createBitmap(scaled_bitmap, 0,0,scaled_bitmap.getWidth(),scaled_bitmap.getHeight(),matrix,false);
+        /*
+        String path = Environment.getExternalStorageDirectory().toString();
+        OutputStream fOut = null;
+        File file = new File(path, "/CapturePictures/"+counter+".jpg"); // the File to save , append increasing numeric counter to prevent files from getting overwritten.
+        try {
+            fOut = new FileOutputStream(file);
+            new_bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fOut); // saving the Bitmap to a file compressed as a JPEG with 85% compression rate
+            fOut.flush(); // Not really required
+            fOut.close(); // do not forget to close the stream
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+*/
+        int[] pixels = BitmapHelper.getBitmapPixels(new_bitmap,0,0,new_bitmap.getWidth(),new_bitmap.getHeight());
+
+        final String prediction = doInference(pixels);
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                image.setImageBitmap(new_bitmap);
+                output.setText("Direction: "+prediction);
+            }
+        });
         return grayImage;
+    }
+
+    private String doInference(int[] pixels) {
+
+        float[][] outputVal = new float[1][8];
+        float[][] float_pixels = new float[1][pixels.length];
+
+        for(int i = 0; i < pixels.length; i++){
+            float_pixels[0][i] = pixels[i];
+        }
+
+        tflite.run(float_pixels,outputVal);
+
+        String output = "{";
+
+        for(float value: outputVal[0]){
+            output += (int)value+",";
+        }
+        output += "}";
+
+        return output;
     }
 
     private Scalar converScalarHsv2Rgba(Scalar hsvColor) {
@@ -206,5 +306,14 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
         Imgproc.cvtColor(pointMatHsv, pointMatRgba, Imgproc.COLOR_HSV2RGB_FULL, 4);
 
         return new Scalar(pointMatRgba.get(0, 0));
+    }
+
+    private ByteBuffer loadModelFile() throws IOException{
+        AssetFileDescriptor fileDescriptor = this.getAssets().openFd("model.tflite");
+        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
+        FileChannel fileChannel = inputStream.getChannel();
+        long startOffset = fileDescriptor.getStartOffset();
+        long declaredLength = fileDescriptor.getDeclaredLength();
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
     }
 }
