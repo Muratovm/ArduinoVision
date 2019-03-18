@@ -1,11 +1,17 @@
 package com.michaelmuratov.arduinovision;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.List;
 
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
@@ -20,7 +26,9 @@ import org.opencv.imgproc.Imgproc;
 import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.util.Log;
@@ -30,6 +38,8 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.View.OnTouchListener;
 import android.view.SurfaceView;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 
 public class MainActivity extends Activity implements OnTouchListener, CvCameraViewListener2 {
     private static final String  TAG              = "MainActivity";
@@ -42,6 +52,9 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
     private Mat                  mSpectrum;
     private Size                 SPECTRUM_SIZE;
     private Scalar               CONTOUR_COLOR;
+    ImageView image;
+
+    Integer counter = 0;
 
     private CameraBridgeViewBase mOpenCvCameraView;
 
@@ -72,7 +85,6 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
     public void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "called onCreate");
         super.onCreate(savedInstanceState);
-
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_DENIED){
             ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.CAMERA}, 0);
@@ -87,6 +99,9 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
         mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.color_blob_detection_activity_surface_view);
         mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
+
+
+        image = findViewById(R.id.thumbImage);
     }
 
     @Override
@@ -181,7 +196,43 @@ public class MainActivity extends Activity implements OnTouchListener, CvCameraV
     }
 
     public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
+
         mRgba = inputFrame.rgba();
+/*
+        Mat mRgbaT = mRgba.t();
+        Core.flip(mRgba.t(), mRgbaT, 1);
+        Imgproc.resize(mRgbaT, mRgbaT, mRgba.size());
+
+        mRgba = mRgbaT;
+*/
+        final Bitmap bitmap =
+                Bitmap.createBitmap(mRgba.cols(), mRgba.rows(), Bitmap.Config.RGB_565);
+        Utils.matToBitmap(mRgba, bitmap);
+
+        String path = Environment.getExternalStorageDirectory().toString();
+        OutputStream fOut = null;
+        File file = new File(path, "/CapturePictures/"+counter+".jpg"); // the File to save , append increasing numeric counter to prevent files from getting overwritten.
+        try {
+            fOut = new FileOutputStream(file);
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fOut); // saving the Bitmap to a file compressed as a JPEG with 85% compression rate
+            fOut.flush(); // Not really required
+            fOut.close(); // do not forget to close the stream
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                image.setImageBitmap(bitmap);
+            }
+        });
+
+
+        counter++;
 
         if (mIsColorSelected) {
             mDetector.process(mRgba);
