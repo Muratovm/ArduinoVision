@@ -15,4 +15,12 @@ public class BitmapHelper {
         }
         return subsetPixels;
     }
+
+    public static int[] unPackPixel(int pixel){
+        int[] rgb = new int[3];
+        rgb[0] = (pixel >> 16) & 0xFF;
+        rgb[1] = (pixel >> 8) & 0xFF;
+        rgb[2] = (pixel >> 0) & 0xFF;
+        return rgb;
+    }
 }
