@@ -1,7 +1,9 @@
 package com.michaelmuratov.arduinovision.Util;
 
 import android.app.Activity;
+import android.content.res.Configuration;
 import android.os.Build;
+import android.view.Display;
 import android.view.View;
 
 public class Toolbox {
@@ -20,5 +22,27 @@ public class Toolbox {
             uiOptions ^= View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
         }
         decorView.setSystemUiVisibility(uiOptions);
+    }
+
+    public static int getScreenOrientation(Activity activity)
+    {
+        Display screenOrientation = activity.getWindowManager().getDefaultDisplay();
+        int orientation = Configuration.ORIENTATION_UNDEFINED;
+        if(screenOrientation.getWidth()==screenOrientation.getHeight()){
+            orientation = Configuration.ORIENTATION_SQUARE;
+            //Do something
+
+        } else{
+            if(screenOrientation.getWidth() < screenOrientation.getHeight()){
+                orientation = Configuration.ORIENTATION_PORTRAIT;
+                //Do something
+
+            }else {
+                orientation = Configuration.ORIENTATION_LANDSCAPE;
+                //Do something
+
+            }
+        }
+        return orientation;
     }
 }

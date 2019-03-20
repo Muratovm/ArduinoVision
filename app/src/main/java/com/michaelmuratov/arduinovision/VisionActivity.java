@@ -28,6 +28,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.drawable.BitmapDrawable;
@@ -35,6 +36,8 @@ import android.os.Bundle;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
@@ -42,10 +45,14 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.View.OnTouchListener;
 import android.view.SurfaceView;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
+import android.widget.Toolbar;
 
 import com.michaelmuratov.arduinovision.UART.UARTListener;
+import com.michaelmuratov.arduinovision.Util.Toolbox;
 
 public class VisionActivity extends AppCompatActivity implements OnTouchListener, CvCameraViewListener2 {
     private static final String  TAG              = "VisionActivity";
@@ -60,8 +67,12 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     private Scalar               CONTOUR_COLOR;
     ImageView image;
     TextView output;
+    EditText setresolution;
     Interpreter tflite;
 
+    int resolution = 50;
+
+    boolean portrait = true;
 
     UARTListener uartListener;
     int num = 0;
@@ -121,6 +132,7 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
         image = findViewById(R.id.thumbImage);
         output = findViewById(R.id.output);
+        setresolution = findViewById(R.id.etDisplayResolution);
         try{
             tflite = new Interpreter(loadModelFile());
         }catch (Exception e){
@@ -134,6 +146,26 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
             uartListener.service_init(deviceAddress);
         }
         myArray = new JSONArray();
+
+        setresolution.addTextChangedListener(new TextWatcher() {
+
+            public void afterTextChanged(Editable s) {
+            }
+
+            public void beforeTextChanged(CharSequence s, int start,
+                                          int count, int after) {
+            }
+
+            public void onTextChanged(final CharSequence s, final int start,
+                                      final int before, final int count) {
+                try{
+                    resolution = Integer.valueOf(s.toString());
+                }
+                catch (Exception e){
+                    e.printStackTrace();
+                }
+            }
+        });
     }
 
     @Override
@@ -148,6 +180,8 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     public void onResume()
     {
         super.onResume();
+        portrait = Toolbox.getScreenOrientation(this) == Configuration.ORIENTATION_PORTRAIT;
+
         if (!OpenCVLoader.initDebug()) {
             Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
             OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback);
@@ -159,9 +193,11 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
     public void onDestroy() {
         super.onDestroy();
+        if(uartListener != null){
+            uartListener.service_terminate();
+        }
         if (mOpenCvCameraView != null)
             mOpenCvCameraView.disableView();
-        uartListener.service_terminate();
     }
 
     public void onCameraViewStarted(int width, int height) {
@@ -256,17 +292,21 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
         Mat grayImage = new Mat();
         Imgproc.cvtColor(mRgba, grayImage, Imgproc.COLOR_BGR2GRAY);
 
-        Matrix matrix = new Matrix();
-        matrix.preRotate(90);
-
-
-        final Bitmap bitmap =
+        Bitmap bitmap =
                 Bitmap.createBitmap(grayImage.cols(), grayImage.rows(), Bitmap.Config.RGB_565);
         Utils.matToBitmap(grayImage, bitmap);
 
+        if(portrait){
+            Matrix matrix = new Matrix();
+            matrix.preRotate(90);
+
+            bitmap = Bitmap.createBitmap(bitmap, 0,0,bitmap.getWidth(),bitmap.getHeight(),matrix,false);
+
+        }
+
+        final Bitmap demo_bitmap = Bitmap.createScaledBitmap(bitmap, resolution, resolution, false);
         final Bitmap scaled_bitmap = Bitmap.createScaledBitmap(bitmap, 50, 50, false);
 
-        final Bitmap new_bitmap = Bitmap.createBitmap(scaled_bitmap, 0,0,scaled_bitmap.getWidth(),scaled_bitmap.getHeight(),matrix,false);
         /*
         String path = Environment.getExternalStorageDirectory().toString();
         OutputStream fOut = null;
@@ -282,7 +322,7 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
             e.printStackTrace();
         }
 */
-        int[] pixels = BitmapHelper.getBitmapPixels(new_bitmap,0,0,new_bitmap.getWidth(),new_bitmap.getHeight());
+        int[] pixels = BitmapHelper.getBitmapPixels(scaled_bitmap,0,0,scaled_bitmap.getWidth(),scaled_bitmap.getHeight());
 
         float[] float_pixels = new float[pixels.length];
 
@@ -298,8 +338,9 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                BitmapDrawable drawable = new BitmapDrawable(getResources(), new_bitmap);
+                BitmapDrawable drawable = new BitmapDrawable(getResources(), demo_bitmap);
                 drawable.setAntiAlias(false);
+                drawable.getPaint().setFilterBitmap(false);
                 image.setImageDrawable(drawable);
 
                 output.setText("Direction: "+prediction);
