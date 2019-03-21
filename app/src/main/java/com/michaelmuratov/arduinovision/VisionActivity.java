@@ -24,13 +24,11 @@ import org.opencv.imgproc.Imgproc;
 import org.tensorflow.lite.Interpreter;
 
 import android.Manifest;
-import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
-import android.graphics.Matrix;
 import android.graphics.drawable.BitmapDrawable;
 import android.os.Bundle;
 import android.support.v4.app.ActivityCompat;
@@ -48,8 +46,6 @@ import android.view.SurfaceView;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
-import android.widget.Toast;
-import android.widget.Toolbar;
 
 import com.michaelmuratov.arduinovision.UART.UARTListener;
 import com.michaelmuratov.arduinovision.Util.Toolbox;
@@ -59,6 +55,8 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
     private boolean              mIsColorSelected = false;
     private Mat                  mRgba;
+    private Mat                  mRgbaF;
+    private Mat                  mRgbaT;
     private Scalar               mBlobColorRgba;
     private Scalar               mBlobColorHsv;
     //private ColorBlobDetector    mDetector;
@@ -66,7 +64,8 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     private Size                 SPECTRUM_SIZE;
     private Scalar               CONTOUR_COLOR;
     ImageView image;
-    TextView output;
+    TextView tvBins;
+    TextView tvDirection;
     EditText setresolution;
     Interpreter tflite;
 
@@ -131,14 +130,14 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
 
         image = findViewById(R.id.thumbImage);
-        output = findViewById(R.id.output);
+        tvBins = findViewById(R.id.tvBuckets);
+        tvDirection = findViewById(R.id.tvDirection);
         setresolution = findViewById(R.id.etDisplayResolution);
         try{
             tflite = new Interpreter(loadModelFile());
         }catch (Exception e){
             e.printStackTrace();
         }
-
 
         if(!deviceAddress.equals("")){
             Log.d("SERVICE","STARTING LISTENER");
@@ -202,6 +201,8 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
     public void onCameraViewStarted(int width, int height) {
         mRgba = new Mat(height, width, CvType.CV_8UC4);
+        mRgbaF = new Mat(height, width, CvType.CV_8UC4);
+        mRgbaT = new Mat(width, width, CvType.CV_8UC4);
         //mDetector = new ColorBlobDetector();
         mSpectrum = new Mat();
         mBlobColorRgba = new Scalar(255);
@@ -267,42 +268,19 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
 
         mRgba = inputFrame.rgba();
-/*
-        Mat mRgbaT = mRgba.t();
-        Core.flip(mRgba.t(), mRgbaT, 1);
-        Imgproc.resize(mRgbaT, mRgbaT, mRgba.size());
-
-        mRgba = mRgbaT;
-*/
-
         counter++;
 
-        if (mIsColorSelected) {
-            //mDetector.process(mRgba);
-            //List<MatOfPoint> contours = mDetector.getContours();
-            //Log.e(TAG, "Contours count: " + contours.size());
-            //Imgproc.drawContours(mRgba, contours, -1, CONTOUR_COLOR);
-
-            Mat colorLabel = mRgba.submat(4, 68, 4, 68);
-            colorLabel.setTo(mBlobColorRgba);
-
-            Mat spectrumLabel = mRgba.submat(4, 4 + mSpectrum.rows(), 70, 70 + mSpectrum.cols());
-            mSpectrum.copyTo(spectrumLabel);
+        if(portrait){
+            // Rotate mRgba 90 degrees
+            Core.transpose(mRgba, mRgbaT);
+            Imgproc.resize(mRgbaT, mRgbaF, mRgbaF.size(), 0,0, 0);
+            Core.flip(mRgbaF, mRgba, 1 );
         }
-        Mat grayImage = new Mat();
-        Imgproc.cvtColor(mRgba, grayImage, Imgproc.COLOR_BGR2GRAY);
 
         Bitmap bitmap =
-                Bitmap.createBitmap(grayImage.cols(), grayImage.rows(), Bitmap.Config.RGB_565);
-        Utils.matToBitmap(grayImage, bitmap);
+                Bitmap.createBitmap(mRgba.cols(), mRgba.rows(), Bitmap.Config.RGB_565);
+        Utils.matToBitmap(mRgba, bitmap);
 
-        if(portrait){
-            Matrix matrix = new Matrix();
-            matrix.preRotate(90);
-
-            bitmap = Bitmap.createBitmap(bitmap, 0,0,bitmap.getWidth(),bitmap.getHeight(),matrix,false);
-
-        }
 
         final Bitmap demo_bitmap = Bitmap.createScaledBitmap(bitmap, resolution, resolution, false);
         final Bitmap scaled_bitmap = Bitmap.createScaledBitmap(bitmap, 50, 50, false);
@@ -333,25 +311,22 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
             //Log.d("PIXEL",""+float_pixels[i]);
         }
 
-        final String prediction = doInference(float_pixels);
+        doInference(float_pixels);
 
+        final BitmapDrawable drawable = new BitmapDrawable(getResources(), demo_bitmap);
+        drawable.setAntiAlias(false);
+        drawable.getPaint().setFilterBitmap(false);
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                BitmapDrawable drawable = new BitmapDrawable(getResources(), demo_bitmap);
-                drawable.setAntiAlias(false);
-                drawable.getPaint().setFilterBitmap(false);
                 image.setImageDrawable(drawable);
-
-                output.setText("Direction: "+prediction);
-
             }
         });
 
-        return grayImage;
+        return mRgba;
     }
 
-    private String doInference(float[] pixels) {
+    private void doInference(float[] pixels) {
 
         float[][] outputVal = new float[1][9];
         float[][] float_pixels = new float[1][pixels.length];
@@ -372,65 +347,90 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
             }
         }
 
-        String output = "{";
+        StringBuilder bins = new StringBuilder("{");
 
         for(int i =0; i < outputVal[0].length; i++){
             if(i == max_index){
-                output += "1,";
+                bins.append("1");
             }
             else{
-                output += "0,";
+                bins.append("0");
+            }
+            if(i<outputVal[0].length-1){
+                bins.append(",");
             }
         }
-        output += "}";
+        bins.append("}");
 
 
         String Y = "\0";
         String X = "\0";
 
+        String direction = "";
+
         switch (max_index){
             case 0:
                 Y="-100\0";
                 X="-254\0";
+                direction = "Backwards Right";
                 break;
             case 1:
                 Y="-100\0";
                 X="0\0";
+                direction = "Backwards";
                 break;
             case 2:
                 Y="-100\0";
                 X="254\0";
+                direction = "Backwards Left";
                 break;
             case 3:
                 Y="40\0";
                 X="0\0";
+                direction = "Forward Slightly";
                 break;
             case 4:
                 Y="0\0";
                 X="0\0";
+                direction = "Stop";
                 break;
             case 5:
                 Y="-40\0";
                 X="0\0";
+                direction = "Backwards Slightly";
                 break;
             case 6:
                 Y="100\0";
                 X="-254\0";
+                direction = "Forward Right";
                 break;
             case 7:
                 Y="100\0";
                 X="0\0";
+                direction = "Forward";
                 break;
             case 8:
                 Y="100\0";
                 X="254\0";
+                direction = "Forward Left";
                 break;
         }
         if(UARTListener.mState == 20){
             uartListener.sendCommand("F" + Y);
             uartListener.sendCommand("S" + X);
         }
-        return output;
+
+        final String final_bins = bins.toString();
+        final String final_direction = direction.toString();
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+
+                tvDirection.setText("Direction: "+final_direction);
+                tvBins.setText("Bins: "+final_bins);
+
+            }
+        });
     }
 
     private Scalar converScalarHsv2Rgba(Scalar hsvColor) {

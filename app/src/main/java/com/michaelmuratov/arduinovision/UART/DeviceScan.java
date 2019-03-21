@@ -63,7 +63,7 @@ public class DeviceScan {
         recyclerView.setAdapter(mAdapter);
         recyclerView.setLayoutManager(new LinearLayoutManager(activity));
 
-        scanLeDevice(true);
+        scanLeDevice(false);
     }
 
     private BluetoothAdapter.LeScanCallback mLeScanCallback =

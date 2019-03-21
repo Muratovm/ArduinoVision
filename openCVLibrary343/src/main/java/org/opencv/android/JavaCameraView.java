@@ -343,6 +343,8 @@ public class JavaCameraView extends CameraBridgeViewBase implements PreviewCallb
 
         private Mat mYuvFrameData;
         private Mat mRgba;
+        private Mat mRgbF;
+        private Mat mRgbT;
         private int mWidth;
         private int mHeight;
     };
