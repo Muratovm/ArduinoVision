@@ -45,5 +45,13 @@
         android:text="50"
         android:textColor="@color/whitegrey"/>
 
+    <Button
+        android:id="@+id/btnChangeModel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="450dp"
+        android:layout_marginLeft="250dp"
+        android:text="Change Model" />
+
 
 </FrameLayout>

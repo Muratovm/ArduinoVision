@@ -1,10 +1,17 @@
 package com.michaelmuratov.arduinovision;
 
+import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.text.MessageFormat;
 
+import org.apache.commons.io.FileUtils;
 import org.json.JSONArray;
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
@@ -24,13 +31,19 @@ import org.opencv.imgproc.Imgproc;
 import org.tensorflow.lite.Interpreter;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -43,15 +56,20 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.View.OnTouchListener;
 import android.view.SurfaceView;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.michaelmuratov.arduinovision.UART.UARTListener;
 import com.michaelmuratov.arduinovision.Util.Toolbox;
 
 public class VisionActivity extends AppCompatActivity implements OnTouchListener, CvCameraViewListener2 {
     private static final String  TAG              = "VisionActivity";
+    private static final int ACTIVITY_CHOOSE_FILE = 52;
+
+    Activity activity;
 
     private boolean              mIsColorSelected = false;
     private Mat                  mRgba;
@@ -108,9 +126,10 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     public void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "called onCreate");
         super.onCreate(savedInstanceState);
-
+        this.activity = this;
         Intent intent = getIntent();
         String deviceAddress = intent.getStringExtra("device address");
+
         Log.d("ADDRESS",deviceAddress);
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -165,6 +184,80 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
                 }
             }
         });
+
+        Button changeModel = findViewById(R.id.btnChangeModel);
+        changeModel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                onBrowse(v);
+            }
+        });
+    }
+
+    public void onBrowse(View view) {
+        Intent chooseFile;
+        Intent intent;
+        chooseFile = new Intent(Intent.ACTION_GET_CONTENT);
+        chooseFile.addCategory(Intent.CATEGORY_OPENABLE);
+        chooseFile.setType("*/*");
+        intent = Intent.createChooser(chooseFile, "Choose a file");
+        startActivityForResult(intent, ACTIVITY_CHOOSE_FILE);
+    }
+
+    public  boolean isStoragePermissionGranted() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED) {
+                Log.v(TAG,"Permission is granted");
+                return true;
+            } else {
+
+                Log.v(TAG,"Permission is revoked");
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
+                return false;
+            }
+        }
+        else { //permission is automatically granted on sdk<23 upon installation
+            Log.v(TAG,"Permission is granted");
+            return true;
+        }
+    }
+
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (resultCode != RESULT_OK) return;
+        String path     = "";
+        if(requestCode == ACTIVITY_CHOOSE_FILE)
+        {
+            isStoragePermissionGranted();
+            final Uri uri = data.getData();
+            assert uri != null;
+            File source = new File(Environment.getExternalStorageDirectory().getPath()+uri.getPath().substring(29));
+            //File source = new File("/sdcard/Models/model.tflite");
+            Log.w("FILE",""+source.getName());
+            Log.w("FILE",""+source.getPath());
+            Log.w("FILE",""+Integer.parseInt(String.valueOf(source.length()/1024)));
+            try {
+                final FileInputStream is = new FileInputStream(source);
+                final FileChannel in = is.getChannel();
+                final MappedByteBuffer buf = in.map(FileChannel.MapMode.READ_ONLY, 0, in.size());
+                tflite = new Interpreter(buf);
+            }catch (IOException e) {
+                e.printStackTrace();
+                Log.w("FILE","something went wrong");
+            }
+
+            /*
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(activity,uri.getPath(), Toast.LENGTH_SHORT).show();;
+                }
+            });
+            */
+        }
+    }
+    public String changeModelLocation(String string){
+        return Environment.getExternalStorageDirectory()+"/Models/" + string;
     }
 
     @Override
@@ -329,13 +422,19 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     private void doInference(float[] pixels) {
 
         float[][] outputVal = new float[1][9];
-        float[][] float_pixels = new float[1][pixels.length];
+        float[][][][] float_pixels = new float[1][50][50][1];
 
-        for(int i = 0; i < pixels.length; i++){
-            float_pixels[0][i] = pixels[i];
+        for(int i = 0; i < 50; i++){
+            for(int j = 0; j < 50; j++){
+                float_pixels[0][i][j][0] = pixels[i*50+j];
+            }
         }
-
-        tflite.run(float_pixels,outputVal);
+        try{
+            tflite.run(float_pixels,outputVal);
+        }catch (Exception e){
+            e.printStackTrace();
+            Toast.makeText(this,"Can't run interpreter", Toast.LENGTH_SHORT).show();
+        }
 
         float max = 0;
         int max_index = -1;
@@ -442,7 +541,7 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     }
 
     private ByteBuffer loadModelFile() throws IOException{
-        AssetFileDescriptor fileDescriptor = this.getAssets().openFd("model.tflite");
+        AssetFileDescriptor fileDescriptor = getResources().openRawResourceFd(R.raw.model);
         FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
         FileChannel fileChannel = inputStream.getChannel();
         long startOffset = fileDescriptor.getStartOffset();

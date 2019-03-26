@@ -12,6 +12,7 @@ import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 import android.widget.Toast;
 
+import com.michaelmuratov.arduinovision.MainActivity;
 import com.michaelmuratov.arduinovision.VisionActivity;
 
 import java.io.UnsupportedEncodingException;
@@ -109,7 +110,7 @@ public class UARTListener {
                             mState = UART_PROFILE_DISCONNECTED;
                             mService.close();
                             Toast.makeText(activity, "disconnected from the car", Toast.LENGTH_SHORT).show();
-                            Intent intent = new Intent(activity, VisionActivity.class);
+                            Intent intent = new Intent(activity, MainActivity.class);
                             activity.startActivity(intent);
                             activity.finish();
                         }
