@@ -362,14 +362,14 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
         mRgba = inputFrame.rgba();
         counter++;
-
+/*
         if(portrait){
             // Rotate mRgba 90 degrees
             Core.transpose(mRgba, mRgbaT);
             Imgproc.resize(mRgbaT, mRgbaF, mRgbaF.size(), 0,0, 0);
             Core.flip(mRgbaF, mRgba, 1 );
         }
-
+*/
         Bitmap bitmap =
                 Bitmap.createBitmap(mRgba.cols(), mRgba.rows(), Bitmap.Config.RGB_565);
         Utils.matToBitmap(mRgba, bitmap);
@@ -403,6 +403,8 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
             //Log.d("PIXEL", String.format("r:%d, g:%d, b:%d", rgb[0],rgb[1],rgb[2]));
             //Log.d("PIXEL",""+float_pixels[i]);
         }
+
+        Log.w("FIRST",""+float_pixels[0]);
 
         doInference(float_pixels);
 
