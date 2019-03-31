@@ -11,7 +11,6 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.text.MessageFormat;
 
-import org.apache.commons.io.FileUtils;
 import org.json.JSONArray;
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
@@ -543,7 +542,7 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     }
 
     private ByteBuffer loadModelFile() throws IOException{
-        AssetFileDescriptor fileDescriptor = getResources().openRawResourceFd(R.raw.model);
+        AssetFileDescriptor fileDescriptor = this.getAssets().openFd("model.tflite");
         FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
         FileChannel fileChannel = inputStream.getChannel();
         long startOffset = fileDescriptor.getStartOffset();
