@@ -361,14 +361,14 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
         mRgba = inputFrame.rgba();
         counter++;
-/*
+
         if(portrait){
             // Rotate mRgba 90 degrees
             Core.transpose(mRgba, mRgbaT);
             Imgproc.resize(mRgbaT, mRgbaF, mRgbaF.size(), 0,0, 0);
             Core.flip(mRgbaF, mRgba, 1 );
         }
-*/
+
         Bitmap bitmap =
                 Bitmap.createBitmap(mRgba.cols(), mRgba.rows(), Bitmap.Config.RGB_565);
         Utils.matToBitmap(mRgba, bitmap);
