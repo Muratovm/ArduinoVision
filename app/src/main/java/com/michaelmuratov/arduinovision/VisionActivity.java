@@ -10,6 +10,7 @@ import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.text.MessageFormat;
+import java.util.Arrays;
 
 import org.json.JSONArray;
 import org.opencv.android.BaseLoaderCallback;
@@ -43,6 +44,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -62,16 +64,17 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.michaelmuratov.arduinovision.UART.UARTListener;
+import com.michaelmuratov.arduinovision.Util.RealPathUtils;
 import com.michaelmuratov.arduinovision.Util.Toolbox;
 
-public class VisionActivity extends AppCompatActivity implements OnTouchListener, CvCameraViewListener2 {
+public class VisionActivity extends AppCompatActivity implements CvCameraViewListener2 {
     private static final String  TAG              = "VisionActivity";
     private static final int ACTIVITY_CHOOSE_FILE = 52;
 
     Activity activity;
 
     private boolean              mIsColorSelected = false;
-    private Mat                  mRgba;
+    private Mat                  mGray;
     private Mat                  mRgbaF;
     private Mat                  mRgbaT;
     private Scalar               mBlobColorRgba;
@@ -81,6 +84,7 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     private Size                 SPECTRUM_SIZE;
     private Scalar               CONTOUR_COLOR;
     ImageView image;
+    ImageView original;
     TextView tvBins;
     TextView tvDirection;
     EditText setresolution;
@@ -106,7 +110,6 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
                 {
                     Log.i(TAG, "OpenCV loaded successfully");
                     mOpenCvCameraView.enableView();
-                    mOpenCvCameraView.setOnTouchListener(VisionActivity.this);
                 } break;
                 default:
                 {
@@ -148,6 +151,7 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
 
         image = findViewById(R.id.thumbImage);
+        original = findViewById(R.id.original);
         tvBins = findViewById(R.id.tvBuckets);
         tvDirection = findViewById(R.id.tvDirection);
         setresolution = findViewById(R.id.etDisplayResolution);
@@ -224,7 +228,6 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (resultCode != RESULT_OK) return;
-        String path     = "";
         if(requestCode == ACTIVITY_CHOOSE_FILE)
         {
             isStoragePermissionGranted();
@@ -245,6 +248,7 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
                 Log.w("FILE","something went wrong");
             }
 
+
             /*
             runOnUiThread(new Runnable() {
                 @Override
@@ -254,9 +258,7 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
             });
             */
         }
-    }
-    public String changeModelLocation(String string){
-        return Environment.getExternalStorageDirectory()+"/Models/" + string;
+
     }
 
     @Override
@@ -292,7 +294,7 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     }
 
     public void onCameraViewStarted(int width, int height) {
-        mRgba = new Mat(height, width, CvType.CV_8UC4);
+        mGray = new Mat(height, width, CvType.CV_8UC4);
         mRgbaF = new Mat(height, width, CvType.CV_8UC4);
         mRgbaT = new Mat(width, width, CvType.CV_8UC4);
         //mDetector = new ColorBlobDetector();
@@ -304,77 +306,40 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
     }
 
     public void onCameraViewStopped() {
-        mRgba.release();
-    }
-
-    public boolean onTouch(View v, MotionEvent event) {
-        int cols = mRgba.cols();
-        int rows = mRgba.rows();
-
-        int xOffset = (mOpenCvCameraView.getWidth() - cols) / 2;
-        int yOffset = (mOpenCvCameraView.getHeight() - rows) / 2;
-
-        int x = (int)event.getX() - xOffset;
-        int y = (int)event.getY() - yOffset;
-
-        Log.i(TAG, "Touch image coordinates: (" + x + ", " + y + ")");
-
-        if ((x < 0) || (y < 0) || (x > cols) || (y > rows)) return false;
-
-        Rect touchedRect = new Rect();
-
-        touchedRect.x = (x>4) ? x-4 : 0;
-        touchedRect.y = (y>4) ? y-4 : 0;
-
-        touchedRect.width = (x+4 < cols) ? x + 4 - touchedRect.x : cols - touchedRect.x;
-        touchedRect.height = (y+4 < rows) ? y + 4 - touchedRect.y : rows - touchedRect.y;
-
-        Mat touchedRegionRgba = mRgba.submat(touchedRect);
-
-        Mat touchedRegionHsv = new Mat();
-        Imgproc.cvtColor(touchedRegionRgba, touchedRegionHsv, Imgproc.COLOR_RGB2HSV_FULL);
-
-        // Calculate average color of touched region
-        mBlobColorHsv = Core.sumElems(touchedRegionHsv);
-        int pointCount = touchedRect.width*touchedRect.height;
-        for (int i = 0; i < mBlobColorHsv.val.length; i++)
-            mBlobColorHsv.val[i] /= pointCount;
-
-        mBlobColorRgba = converScalarHsv2Rgba(mBlobColorHsv);
-
-        Log.i(TAG, "Touched rgba color: (" + mBlobColorRgba.val[0] + ", " + mBlobColorRgba.val[1] +
-                ", " + mBlobColorRgba.val[2] + ", " + mBlobColorRgba.val[3] + ")");
-
-        //mDetector.setHsvColor(mBlobColorHsv);
-
-        //Imgproc.resize(mDetector.getSpectrum(), mSpectrum, SPECTRUM_SIZE, 0, 0, Imgproc.INTER_LINEAR_EXACT);
-
-        mIsColorSelected = true;
-
-        touchedRegionRgba.release();
-        touchedRegionHsv.release();
-
-        return false; // don't need subsequent touch events
+        mGray.release();
     }
 
     public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
 
-        mRgba = inputFrame.rgba();
-        counter++;
+        mGray = inputFrame.gray();
 
         if(portrait){
             // Rotate mRgba 90 degrees
-            Core.transpose(mRgba, mRgbaT);
+            Core.transpose(mGray, mRgbaT);
             Imgproc.resize(mRgbaT, mRgbaF, mRgbaF.size(), 0,0, 0);
-            Core.flip(mRgbaF, mRgba, 1 );
+            Core.flip(mRgbaF, mGray, 1 );
+
         }
 
+        //Mat mEqualized = new Mat(mGray.rows(), mGray.cols(), mGray.type());
+        Mat mEqualized = mGray;
+        Mat edge = new Mat();
+        Imgproc.Canny(mEqualized, edge, 100, 200, 3, true);
+        Imgproc.equalizeHist(mGray, mEqualized);
+        counter++;
+
+        mEqualized = edge;
+
+        Bitmap original_bitmap =
+                Bitmap.createBitmap(mGray.cols(), mGray.rows(), Bitmap.Config.RGB_565);
+        Utils.matToBitmap(mGray, original_bitmap);
+
         Bitmap bitmap =
-                Bitmap.createBitmap(mRgba.cols(), mRgba.rows(), Bitmap.Config.RGB_565);
-        Utils.matToBitmap(mRgba, bitmap);
+                Bitmap.createBitmap(mEqualized.cols(), mEqualized.rows(), Bitmap.Config.RGB_565);
+        Utils.matToBitmap(mEqualized, bitmap);
 
 
-        final Bitmap demo_bitmap = Bitmap.createScaledBitmap(bitmap, resolution, resolution, false);
+        //final Bitmap demo_bitmap = Bitmap.createScaledBitmap(bitmap, resolution, resolution, false);
         final Bitmap scaled_bitmap = Bitmap.createScaledBitmap(bitmap, 50, 50, false);
 
         /*
@@ -398,28 +363,39 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
 
         for(int i =0; i < pixels.length; i++){
             int[] rgb = BitmapHelper.unPackPixel(pixels[i]);
-            float_pixels[i] = (float) (rgb[0] * 299/1000 + rgb[1]*587/1000 + rgb[2] * 114/1000) / 255;
+            float_pixels[i] = (float) rgb[1]/255;
             //Log.d("PIXEL", String.format("r:%d, g:%d, b:%d", rgb[0],rgb[1],rgb[2]));
             //Log.d("PIXEL",""+float_pixels[i]);
         }
 
-        Log.w("FIRST",""+float_pixels[0]);
-
         doInference(float_pixels);
 
-        final BitmapDrawable drawable = new BitmapDrawable(getResources(), demo_bitmap);
+        final BitmapDrawable drawable = new BitmapDrawable(getResources(), bitmap);
         drawable.setAntiAlias(false);
         drawable.getPaint().setFilterBitmap(false);
+
+        final BitmapDrawable drawable2 = new BitmapDrawable(getResources(), original_bitmap);
+        drawable2.setAntiAlias(false);
+        drawable2.getPaint().setFilterBitmap(false);
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
                 image.setImageDrawable(drawable);
+                original.setImageDrawable(drawable2);
             }
         });
 
-        return mRgba;
+        return mGray;
     }
-
+/*
+    private float[] equalize(Mat image_matrix){
+        float[] array = new float[image_matrix.cols()*image_matrix.rows()];
+        for(int i =0; i < image_matrix.cols()*image_matrix.rows(); i+= 256){
+            int sum = Arrays.stream(arr).sum();
+        }
+        return array;
+    }
+*/
     private void doInference(float[] pixels) {
 
         float[][] outputVal = new float[1][9];
@@ -445,6 +421,10 @@ public class VisionActivity extends AppCompatActivity implements OnTouchListener
                 max_index = i;
                 max = outputVal[0][i];
             }
+        }
+
+        if(max_index == 4){
+            max_index = 1; //go back instead of stopping
         }
 
         StringBuilder bins = new StringBuilder("{");
