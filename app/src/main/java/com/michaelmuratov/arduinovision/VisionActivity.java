@@ -232,8 +232,17 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         {
             isStoragePermissionGranted();
             final Uri uri = data.getData();
+            Log.w("FILE",""+uri.getPath());
             assert uri != null;
-            File source = new File(Environment.getExternalStorageDirectory().getPath()+uri.getPath().substring(29));
+            int index = uri.getPath().indexOf(":");
+            File source;
+            if(index > 0){
+                source = new File(Environment.getExternalStorageDirectory().getPath()+"/"+uri.getPath().substring(index+1));
+            }
+            else{
+                assert uri != null;
+                source = new File(Environment.getExternalStorageDirectory().getPath()+uri.getPath().substring(29));
+            }
             //File source = new File("/sdcard/Models/model.tflite");
             Log.w("FILE",""+source.getName());
             Log.w("FILE",""+source.getPath());
