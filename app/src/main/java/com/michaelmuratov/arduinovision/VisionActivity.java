@@ -333,7 +333,7 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         //Mat mEqualized = new Mat(mGray.rows(), mGray.cols(), mGray.type());
         Mat mEqualized = mGray;
         Mat edge = new Mat();
-        Imgproc.Canny(mEqualized, edge, 100, 200, 3, true);
+        Imgproc.Canny(mEqualized, edge, 60, 180, 3, true);
         Imgproc.equalizeHist(mGray, mEqualized);
         counter++;
 
