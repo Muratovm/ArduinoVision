@@ -1,62 +1,27 @@
 package com.michaelmuratov.arduinovision;
 
-import java.io.File;
-import java.io.FileDescriptor;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
-import java.text.MessageFormat;
-import java.util.Arrays;
-
-import org.json.JSONArray;
-import org.opencv.android.BaseLoaderCallback;
-import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
-import org.opencv.android.LoaderCallbackInterface;
-import org.opencv.android.OpenCVLoader;
-import org.opencv.android.Utils;
-import org.opencv.core.Core;
-import org.opencv.core.CvType;
-import org.opencv.core.Mat;
-import org.opencv.core.Rect;
-import org.opencv.core.Scalar;
-import org.opencv.core.Size;
-import org.opencv.android.CameraBridgeViewBase;
-import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
-import org.opencv.imgproc.Imgproc;
-
-import org.tensorflow.lite.Interpreter;
-
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Configuration;
-import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.MediaStore;
-import android.provider.OpenableColumns;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
-import android.view.MotionEvent;
+import android.view.SurfaceView;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.view.View.OnTouchListener;
-import android.view.SurfaceView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -64,25 +29,40 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.michaelmuratov.arduinovision.UART.UARTListener;
-import com.michaelmuratov.arduinovision.Util.RealPathUtils;
 import com.michaelmuratov.arduinovision.Util.Toolbox;
+
+import org.json.JSONArray;
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
+import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
+import org.opencv.core.Core;
+import org.opencv.core.CvType;
+import org.opencv.core.Mat;
+import org.opencv.core.Scalar;
+import org.opencv.imgproc.Imgproc;
+import org.tensorflow.lite.Interpreter;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.text.MessageFormat;
+import java.util.Objects;
 
 public class VisionActivity extends AppCompatActivity implements CvCameraViewListener2 {
     private static final String  TAG              = "VisionActivity";
     private static final int ACTIVITY_CHOOSE_FILE = 52;
 
     Activity activity;
-
-    private boolean              mIsColorSelected = false;
     private Mat                  mGray;
     private Mat                  mRgbaF;
     private Mat                  mRgbaT;
-    private Scalar               mBlobColorRgba;
-    private Scalar               mBlobColorHsv;
-    //private ColorBlobDetector    mDetector;
-    private Mat                  mSpectrum;
-    private Size                 SPECTRUM_SIZE;
-    private Scalar               CONTOUR_COLOR;
     ImageView image;
     ImageView original;
     TextView tvBins;
@@ -95,10 +75,7 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
     boolean portrait = true;
 
     UARTListener uartListener;
-    int num = 0;
     JSONArray myArray;
-
-    Integer counter = 0;
 
     private CameraBridgeViewBase mOpenCvCameraView;
 
@@ -145,7 +122,7 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
 
         setContentView(R.layout.color_blob_detection_surface_view);
 
-        mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.color_blob_detection_activity_surface_view);
+        mOpenCvCameraView = findViewById(R.id.color_blob_detection_activity_surface_view);
         mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
 
@@ -207,22 +184,19 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         startActivityForResult(intent, ACTIVITY_CHOOSE_FILE);
     }
 
-    public  boolean isStoragePermissionGranted() {
+    public void isStoragePermissionGranted() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     == PackageManager.PERMISSION_GRANTED) {
                 Log.v(TAG,"Permission is granted");
-                return true;
             } else {
 
                 Log.v(TAG,"Permission is revoked");
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
-                return false;
             }
         }
         else { //permission is automatically granted on sdk<23 upon installation
             Log.v(TAG,"Permission is granted");
-            return true;
         }
     }
 
@@ -232,15 +206,14 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         {
             isStoragePermissionGranted();
             final Uri uri = data.getData();
-            Log.w("FILE",""+uri.getPath());
             assert uri != null;
-            int index = uri.getPath().indexOf(":");
+            Log.w("FILE",""+uri.getPath());
+            int index = Objects.requireNonNull(uri.getPath()).indexOf(":");
             File source;
             if(index > 0){
                 source = new File(Environment.getExternalStorageDirectory().getPath()+"/"+uri.getPath().substring(index+1));
             }
             else{
-                assert uri != null;
                 source = new File(Environment.getExternalStorageDirectory().getPath()+uri.getPath().substring(29));
             }
             //File source = new File("/sdcard/Models/model.tflite");
@@ -256,16 +229,6 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
                 e.printStackTrace();
                 Log.w("FILE","something went wrong");
             }
-
-
-            /*
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(activity,uri.getPath(), Toast.LENGTH_SHORT).show();;
-                }
-            });
-            */
         }
 
     }
@@ -306,12 +269,6 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         mGray = new Mat(height, width, CvType.CV_8UC4);
         mRgbaF = new Mat(height, width, CvType.CV_8UC4);
         mRgbaT = new Mat(width, width, CvType.CV_8UC4);
-        //mDetector = new ColorBlobDetector();
-        mSpectrum = new Mat();
-        mBlobColorRgba = new Scalar(255);
-        mBlobColorHsv = new Scalar(255);
-        SPECTRUM_SIZE = new Size(200, 64);
-        CONTOUR_COLOR = new Scalar(255,0,0,255);
     }
 
     public void onCameraViewStopped() {
@@ -330,15 +287,17 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
 
         }
 
-        //Mat mEqualized = new Mat(mGray.rows(), mGray.cols(), mGray.type());
+        Mat mEqualized = new Mat(mGray.rows(), mGray.cols(), mGray.type());
+        Imgproc.equalizeHist(mGray, mEqualized);
+        /*
         Mat mEqualized = mGray;
         Mat edge = new Mat();
         Imgproc.Canny(mEqualized, edge, 100, 200, 3, true);
-        Imgproc.equalizeHist(mGray, mEqualized);
+
         counter++;
 
         mEqualized = edge;
-
+        */
         Bitmap original_bitmap =
                 Bitmap.createBitmap(mGray.cols(), mGray.rows(), Bitmap.Config.RGB_565);
         Utils.matToBitmap(mGray, original_bitmap);
@@ -396,15 +355,7 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
 
         return mGray;
     }
-/*
-    private float[] equalize(Mat image_matrix){
-        float[] array = new float[image_matrix.cols()*image_matrix.rows()];
-        for(int i =0; i < image_matrix.cols()*image_matrix.rows(); i+= 256){
-            int sum = Arrays.stream(arr).sum();
-        }
-        return array;
-    }
-*/
+
     private void doInference(float[] pixels) {
 
         float[][] outputVal = new float[1][9];
@@ -510,28 +461,20 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         }
 
         final String final_bins = bins.toString();
-        final String final_direction = direction.toString();
+        final String final_direction = direction;
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
 
-                tvDirection.setText("Direction: "+final_direction);
-                tvBins.setText("Bins: "+final_bins);
+                tvDirection.setText(MessageFormat.format("Direction: {0}", final_direction));
+                tvBins.setText(MessageFormat.format("Bins: {0}", final_bins));
 
             }
         });
     }
 
-    private Scalar converScalarHsv2Rgba(Scalar hsvColor) {
-        Mat pointMatRgba = new Mat();
-        Mat pointMatHsv = new Mat(1, 1, CvType.CV_8UC3, hsvColor);
-        Imgproc.cvtColor(pointMatHsv, pointMatRgba, Imgproc.COLOR_HSV2RGB_FULL, 4);
-
-        return new Scalar(pointMatRgba.get(0, 0));
-    }
-
     private ByteBuffer loadModelFile() throws IOException{
-        AssetFileDescriptor fileDescriptor = this.getAssets().openFd("model.tflite");
+        AssetFileDescriptor fileDescriptor = this.getAssets().openFd("model_normalized.tflite");
         FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
         FileChannel fileChannel = inputStream.getChannel();
         long startOffset = fileDescriptor.getStartOffset();

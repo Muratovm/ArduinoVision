@@ -86,7 +86,7 @@ public class UARTListener {
 
     private final BroadcastReceiver UARTStatusChangeReceiver = new BroadcastReceiver() {
         public void onReceive(Context context, Intent intent) {
-            Log.d("SERVICE","5");
+            Log.d("SERVICE","6");
             final String action = intent.getAction();
             //*********************//
             assert action != null;
@@ -138,7 +138,7 @@ public class UARTListener {
                     });
                     break;
                 case UartService.DEVICE_DOES_NOT_SUPPORT_UART:
-                    mService.disconnect();
+                    mService.enableTXNotification();
                     break;
             }
         }
