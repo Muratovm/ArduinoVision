@@ -7,11 +7,13 @@ import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.ParcelFileDescriptor;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -47,12 +49,15 @@ import org.opencv.imgproc.Imgproc;
 import org.tensorflow.lite.Interpreter;
 
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.Objects;
 
 public class VisionActivity extends AppCompatActivity implements CvCameraViewListener2 {
@@ -69,6 +74,8 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
     TextView tvDirection;
     EditText setresolution;
     Interpreter tflite;
+    LinkedList<Bitmap> bitmap_list;
+
 
     int resolution = 50;
 
@@ -106,6 +113,7 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         Log.i(TAG, "called onCreate");
         super.onCreate(savedInstanceState);
         this.activity = this;
+        bitmap_list = new LinkedList<>();
         Intent intent = getIntent();
         String deviceAddress = intent.getStringExtra("device address");
 
@@ -200,37 +208,41 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         }
     }
 
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (resultCode != RESULT_OK) return;
-        if(requestCode == ACTIVITY_CHOOSE_FILE)
-        {
-            isStoragePermissionGranted();
-            final Uri uri = data.getData();
-            assert uri != null;
-            Log.w("FILE",""+uri.getPath());
-            int index = Objects.requireNonNull(uri.getPath()).indexOf(":");
-            File source;
-            if(index > 0){
-                source = new File(Environment.getExternalStorageDirectory().getPath()+"/"+uri.getPath().substring(index+1));
-            }
-            else{
-                source = new File(Environment.getExternalStorageDirectory().getPath()+uri.getPath().substring(29));
-            }
-            //File source = new File("/sdcard/Models/model.tflite");
-            Log.w("FILE",""+source.getName());
-            Log.w("FILE",""+source.getPath());
-            Log.w("FILE",""+Integer.parseInt(String.valueOf(source.length()/1024)));
-            try {
-                final FileInputStream is = new FileInputStream(source);
-                final FileChannel in = is.getChannel();
-                final MappedByteBuffer buf = in.map(FileChannel.MapMode.READ_ONLY, 0, in.size());
-                tflite = new Interpreter(buf);
-            }catch (IOException e) {
-                e.printStackTrace();
-                Log.w("FILE","something went wrong");
+    @Override
+    public void onActivityResult(int requestCode, int resultCode,
+                                 Intent resultData) {
+
+        // The ACTION_OPEN_DOCUMENT intent was sent with the request code
+        // READ_REQUEST_CODE. If the request code seen here doesn't match, it's the
+        // response to some other intent, and the code below shouldn't run at all.
+
+        if (requestCode == ACTIVITY_CHOOSE_FILE && resultCode == Activity.RESULT_OK) {
+            // The document selected by the user won't be returned in the intent.
+            // Instead, a URI to that document will be contained in the return intent
+            // provided to this method as a parameter.
+            // Pull that URI using resultData.getData().
+            Uri uri = null;
+            if (resultData != null) {
+                uri = resultData.getData();
+                Log.i(TAG, "Uri: " + uri.toString());
+                try {
+                    getModel(uri);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
             }
         }
+    }
 
+    private void getModel(Uri uri) throws IOException {
+        ParcelFileDescriptor parcelFileDescriptor =
+                getContentResolver().openFileDescriptor(uri, "r");
+        FileDescriptor fileDescriptor = parcelFileDescriptor.getFileDescriptor();
+        FileInputStream is = new FileInputStream(fileDescriptor);
+        final FileChannel in = is.getChannel();
+        final MappedByteBuffer buf = in.map(FileChannel.MapMode.READ_ONLY, 0, in.size());
+        tflite = new Interpreter(buf);
     }
 
     @Override
@@ -309,7 +321,6 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
 
         //final Bitmap demo_bitmap = Bitmap.createScaledBitmap(bitmap, resolution, resolution, false);
         final Bitmap scaled_bitmap = Bitmap.createScaledBitmap(bitmap, 50, 50, false);
-
         /*
         String path = Environment.getExternalStorageDirectory().toString();
         OutputStream fOut = null;
@@ -324,20 +335,8 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         } catch (IOException e) {
             e.printStackTrace();
         }
-*/
-        int[] pixels = BitmapHelper.getBitmapPixels(scaled_bitmap,0,0,scaled_bitmap.getWidth(),scaled_bitmap.getHeight());
-
-        float[] float_pixels = new float[pixels.length];
-
-        for(int i =0; i < pixels.length; i++){
-            int[] rgb = BitmapHelper.unPackPixel(pixels[i]);
-            float_pixels[i] = (float) rgb[1]/255;
-            //Log.d("PIXEL", String.format("r:%d, g:%d, b:%d", rgb[0],rgb[1],rgb[2]));
-            //Log.d("PIXEL",""+float_pixels[i]);
-        }
-
-        doInference(float_pixels);
-
+        */
+        doInference(scaled_bitmap);
         final BitmapDrawable drawable = new BitmapDrawable(getResources(), bitmap);
         drawable.setAntiAlias(false);
         drawable.getPaint().setFilterBitmap(false);
@@ -352,129 +351,153 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
                 original.setImageDrawable(drawable2);
             }
         });
-
         return mGray;
     }
 
-    private void doInference(float[] pixels) {
+    private void doInference(Bitmap bitmap) {
 
-        float[][] outputVal = new float[1][9];
-        float[][][][] float_pixels = new float[1][50][50][1];
+        if(bitmap_list.size() < 10){
+            bitmap_list.add(bitmap);
+        }
+        else{
+            bitmap_list.pop();
+            bitmap_list.add(bitmap);
 
-        for(int i = 0; i < 50; i++){
-            for(int j = 0; j < 50; j++){
-                float_pixels[0][i][j][0] = pixels[i*50+j];
+            float[][][][] float_pixels = new float[1][50][50][10];
+            float[][] outputVal = new float[1][9];
+
+            ArrayList<float[]> multiple_bitmaps = new ArrayList<>();
+
+            for(int b = 0; b < 10; b++){
+                Bitmap cur_bitmap = bitmap_list.get(b);
+                int[] pixels = BitmapHelper.getBitmapPixels(bitmap,0,0, cur_bitmap.getWidth(), cur_bitmap.getHeight());
+                float[] rgb_float_pixels = new float[pixels.length];
+                for(int i =0; i < pixels.length; i++){
+                    int[] rgb = BitmapHelper.unPackPixel(pixels[i]);
+                    rgb_float_pixels[i] = (float) rgb[1]/255;
+                    //Log.d("PIXEL", String.format("r:%d, g:%d, b:%d", rgb[0],rgb[1],rgb[2]));
+                    //Log.d("PIXEL",""+float_pixels[i]);
+                }
+                multiple_bitmaps.add(rgb_float_pixels);
             }
-        }
-        try{
-            tflite.run(float_pixels,outputVal);
-        }catch (Exception e){
-            e.printStackTrace();
-            Toast.makeText(this,"Can't run interpreter", Toast.LENGTH_SHORT).show();
-        }
-
-        float max = 0;
-        int max_index = -1;
-
-        for(int i = 0; i < outputVal[0].length; i++){
-            if(outputVal[0][i] > max){
-                max_index = i;
-                max = outputVal[0][i];
+            for(int i = 0; i < 50; i++){
+                for(int j = 0; j < 50; j++){
+                    for(int b = 0; b < 10; b++){
+                        float_pixels[0][i][j][b] = multiple_bitmaps.get(b)[i*50+j];
+                    }
+                }
             }
-        }
 
-        if(max_index == 4){
-            max_index = 1; //go back instead of stopping
-        }
-
-        StringBuilder bins = new StringBuilder("{");
-
-        for(int i =0; i < outputVal[0].length; i++){
-            if(i == max_index){
-                bins.append("1");
+            try{
+                tflite.run(float_pixels,outputVal);
+            }catch (Exception e){
+                e.printStackTrace();
+                Toast.makeText(this,"Can't run interpreter", Toast.LENGTH_SHORT).show();
             }
-            else{
-                bins.append("0");
+
+            float max = 0;
+            int max_index = -1;
+
+            for(int i = 0; i < outputVal[0].length; i++){
+                if(outputVal[0][i] > max){
+                    max_index = i;
+                    max = outputVal[0][i];
+                }
             }
-            if(i<outputVal[0].length-1){
-                bins.append(",");
+
+            if(max_index == 4){
+                max_index = 1; //go back instead of stopping
             }
-        }
-        bins.append("}");
 
+            StringBuilder bins = new StringBuilder("{");
 
-        String Y = "\0";
-        String X = "\0";
-
-        String direction = "";
-
-        switch (max_index){
-            case 0:
-                Y="-100\0";
-                X="-254\0";
-                direction = "Backwards Right";
-                break;
-            case 1:
-                Y="-100\0";
-                X="0\0";
-                direction = "Backwards";
-                break;
-            case 2:
-                Y="-100\0";
-                X="254\0";
-                direction = "Backwards Left";
-                break;
-            case 3:
-                Y="40\0";
-                X="0\0";
-                direction = "Forward Slightly";
-                break;
-            case 4:
-                Y="0\0";
-                X="0\0";
-                direction = "Stop";
-                break;
-            case 5:
-                Y="-40\0";
-                X="0\0";
-                direction = "Backwards Slightly";
-                break;
-            case 6:
-                Y="100\0";
-                X="-254\0";
-                direction = "Forward Right";
-                break;
-            case 7:
-                Y="100\0";
-                X="0\0";
-                direction = "Forward";
-                break;
-            case 8:
-                Y="100\0";
-                X="254\0";
-                direction = "Forward Left";
-                break;
-        }
-        if(UARTListener.mState == 20){
-            uartListener.sendCommand("F" + Y);
-            uartListener.sendCommand("S" + X);
-        }
-
-        final String final_bins = bins.toString();
-        final String final_direction = direction;
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-
-                tvDirection.setText(MessageFormat.format("Direction: {0}", final_direction));
-                tvBins.setText(MessageFormat.format("Bins: {0}", final_bins));
-
+            for(int i =0; i < outputVal[0].length; i++){
+                if(i == max_index){
+                    bins.append("1");
+                }
+                else{
+                    bins.append("0");
+                }
+                if(i<outputVal[0].length-1){
+                    bins.append(",");
+                }
             }
-        });
+            bins.append("}");
+
+
+            String Y = "\0";
+            String X = "\0";
+
+            String direction = "";
+
+            switch (max_index){
+                case 0:
+                    Y="-100\0";
+                    X="-254\0";
+                    direction = "Backwards Right";
+                    break;
+                case 1:
+                    Y="-100\0";
+                    X="0\0";
+                    direction = "Backwards";
+                    break;
+                case 2:
+                    Y="-100\0";
+                    X="254\0";
+                    direction = "Backwards Left";
+                    break;
+                case 3:
+                    Y="40\0";
+                    X="0\0";
+                    direction = "Forward Slightly";
+                    break;
+                case 4:
+                    Y="0\0";
+                    X="0\0";
+                    direction = "Stop";
+                    break;
+                case 5:
+                    Y="-40\0";
+                    X="0\0";
+                    direction = "Backwards Slightly";
+                    break;
+                case 6:
+                    Y="100\0";
+                    X="-254\0";
+                    direction = "Forward Right";
+                    break;
+                case 7:
+                    Y="100\0";
+                    X="0\0";
+                    direction = "Forward";
+                    break;
+                case 8:
+                    Y="100\0";
+                    X="254\0";
+                    direction = "Forward Left";
+                    break;
+            }
+            if(UARTListener.mState == 20){
+                uartListener.sendCommand("F" + Y);
+                uartListener.sendCommand("S" + X);
+            }
+
+            final String final_bins = bins.toString();
+            final String final_direction = direction;
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+
+                    tvDirection.setText(MessageFormat.format("Direction: {0}", final_direction));
+                    tvBins.setText(MessageFormat.format("Bins: {0}", final_bins));
+
+                }
+            });
+        }
     }
 
     private ByteBuffer loadModelFile() throws IOException{
-        AssetFileDescriptor fileDescriptor = this.getAssets().openFd("model_normalized.tflite");
+        AssetFileDescriptor fileDescriptor = this.getAssets().openFd("multi_image.tflite");
         FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
         FileChannel fileChannel = inputStream.getChannel();
         long startOffset = fileDescriptor.getStartOffset();
