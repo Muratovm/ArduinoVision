@@ -7,12 +7,10 @@ import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
@@ -44,11 +42,10 @@ import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
-import org.opencv.core.Scalar;
 import org.opencv.imgproc.Imgproc;
 import org.tensorflow.lite.Interpreter;
+import org.tensorflow.lite.gpu.GpuDelegate;
 
-import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -56,14 +53,14 @@ import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.text.MessageFormat;
-import java.util.ArrayList;
 import java.util.LinkedList;
-import java.util.Objects;
 
 public class VisionActivity extends AppCompatActivity implements CvCameraViewListener2 {
     private static final String  TAG              = "VisionActivity";
     private static final int ACTIVITY_CHOOSE_FILE = 52;
 
+    /** The loaded TensorFlow Lite model. */
+    private ByteBuffer tfliteModel;
     Activity activity;
     private Mat                  mGray;
     private Mat                  mRgbaF;
@@ -72,10 +69,17 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
     ImageView original;
     TextView tvBins;
     TextView tvDirection;
+    TextView tvDelay;
     EditText setresolution;
     Interpreter tflite;
-    LinkedList<Bitmap> bitmap_list;
+    LinkedList<float[]> float_bitmaps;
+    LinkedList<Long> timestamps;
+    /** Options for configuring the Interpreter. */
+    /*
+    private final Interpreter.Options tfliteOptions = new Interpreter.Options();
 
+    GpuDelegate gpuDelegate = null;
+*/
 
     int resolution = 50;
 
@@ -113,7 +117,8 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         Log.i(TAG, "called onCreate");
         super.onCreate(savedInstanceState);
         this.activity = this;
-        bitmap_list = new LinkedList<>();
+        float_bitmaps = new LinkedList<>();
+        timestamps = new LinkedList<>();
         Intent intent = getIntent();
         String deviceAddress = intent.getStringExtra("device address");
 
@@ -140,11 +145,15 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         tvBins = findViewById(R.id.tvBuckets);
         tvDirection = findViewById(R.id.tvDirection);
         setresolution = findViewById(R.id.etDisplayResolution);
+        tvDelay = findViewById(R.id.delay);
+
         try{
-            tflite = new Interpreter(loadModelFile());
+            tfliteModel = loadModelFile();
+            tflite = new Interpreter(tfliteModel);
         }catch (Exception e){
             e.printStackTrace();
         }
+        //useGpu();
 
         if(!deviceAddress.equals("")){
             Log.d("SERVICE","STARTING LISTENER");
@@ -181,7 +190,22 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
             }
         });
     }
+/*
+    public void useGpu() {
+        if (gpuDelegate == null) {
+            gpuDelegate = new GpuDelegate();
+            tfliteOptions.addDelegate(gpuDelegate);
+            recreateInterpreter();
+        }
+    }
 
+    private void recreateInterpreter() {
+        if (tflite != null) {
+            tflite.close();
+            tflite = new Interpreter(tfliteModel, tfliteOptions);
+        }
+    }
+*/
     public void onBrowse(View view) {
         Intent chooseFile;
         Intent intent;
@@ -246,8 +270,7 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
     }
 
     @Override
-    public void onPause()
-    {
+    public void onPause() {
         super.onPause();
         if (mOpenCvCameraView != null)
             mOpenCvCameraView.disableView();
@@ -291,16 +314,17 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
 
         mGray = inputFrame.gray();
 
-        if(portrait){
+        if (portrait) {
             // Rotate mRgba 90 degrees
             Core.transpose(mGray, mRgbaT);
-            Imgproc.resize(mRgbaT, mRgbaF, mRgbaF.size(), 0,0, 0);
-            Core.flip(mRgbaF, mGray, 1 );
+            Imgproc.resize(mRgbaT, mRgbaF, mRgbaF.size(), 0, 0, 0);
+            Core.flip(mRgbaF, mGray, 1);
 
         }
 
         Mat mEqualized = new Mat(mGray.rows(), mGray.cols(), mGray.type());
         Imgproc.equalizeHist(mGray, mEqualized);
+
         /*
         Mat mEqualized = mGray;
         Mat edge = new Mat();
@@ -354,36 +378,37 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         return mGray;
     }
 
-    private void doInference(Bitmap bitmap) {
-
-        if(bitmap_list.size() < 10){
-            bitmap_list.add(bitmap);
+    public float[] BitmapToArray(Bitmap bitmap){
+        int[] pixels = BitmapHelper.getBitmapPixels(bitmap,0,0, bitmap.getWidth(), bitmap.getHeight());
+        float[] rgb_float_pixels = new float[pixels.length];
+        for(int i =0; i < pixels.length; i++){
+            int[] rgb = BitmapHelper.unPackPixel(pixels[i]);
+            rgb_float_pixels[i] = (float) rgb[1]/255;
+            //Log.d("PIXEL", String.format("r:%d, g:%d, b:%d", rgb[0],rgb[1],rgb[2]));
+            //Log.d("PIXEL",""+float_pixels[i]);
         }
+        return rgb_float_pixels;
+    }
+
+    private void doInference(Bitmap bitmap) {
+        if(float_bitmaps.size() < 10){
+            float_bitmaps.add(BitmapToArray(bitmap));
+            timestamps.add(System.currentTimeMillis());
+        }
+        //else if(System.currentTimeMillis() - timestamps.getLast() >= 250){
         else{
-            bitmap_list.pop();
-            bitmap_list.add(bitmap);
+            float_bitmaps.pop();
+            timestamps.pop();
+            float_bitmaps.add(BitmapToArray(bitmap));
+            timestamps.add(System.currentTimeMillis());
 
             float[][][][] float_pixels = new float[1][50][50][10];
             float[][] outputVal = new float[1][9];
 
-            ArrayList<float[]> multiple_bitmaps = new ArrayList<>();
-
-            for(int b = 0; b < 10; b++){
-                Bitmap cur_bitmap = bitmap_list.get(b);
-                int[] pixels = BitmapHelper.getBitmapPixels(bitmap,0,0, cur_bitmap.getWidth(), cur_bitmap.getHeight());
-                float[] rgb_float_pixels = new float[pixels.length];
-                for(int i =0; i < pixels.length; i++){
-                    int[] rgb = BitmapHelper.unPackPixel(pixels[i]);
-                    rgb_float_pixels[i] = (float) rgb[1]/255;
-                    //Log.d("PIXEL", String.format("r:%d, g:%d, b:%d", rgb[0],rgb[1],rgb[2]));
-                    //Log.d("PIXEL",""+float_pixels[i]);
-                }
-                multiple_bitmaps.add(rgb_float_pixels);
-            }
             for(int i = 0; i < 50; i++){
                 for(int j = 0; j < 50; j++){
                     for(int b = 0; b < 10; b++){
-                        float_pixels[0][i][j][b] = multiple_bitmaps.get(b)[i*50+j];
+                        float_pixels[0][i][j][b] = float_bitmaps.get(b)[i*50+j];
                     }
                 }
             }
@@ -487,7 +512,7 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-
+                    tvDelay.setText("Delay: "+(System.currentTimeMillis() - timestamps.getLast()));
                     tvDirection.setText(MessageFormat.format("Direction: {0}", final_direction));
                     tvBins.setText(MessageFormat.format("Bins: {0}", final_bins));
 
