@@ -23,4 +23,18 @@ public class BitmapHelper {
         rgb[2] = (pixel >> 0) & 0xFF;
         return rgb;
     }
+
+
+
+    public static int[] BitmapToArray(Bitmap bitmap){
+        int[] pixels = BitmapHelper.getBitmapPixels(bitmap,0,0, bitmap.getWidth(), bitmap.getHeight());
+        int[] rgb_float_pixels = new int[pixels.length];
+        for(int i =0; i < pixels.length; i++){
+            int[] rgb = BitmapHelper.unPackPixel(pixels[i]);
+            rgb_float_pixels[i] = rgb[1];
+            //Log.d("PIXEL", String.format("r:%d, g:%d, b:%d", rgb[0],rgb[1],rgb[2]));
+            //Log.d("PIXEL",""+rgb_float_pixels[i]);
+        }
+        return rgb_float_pixels;
+    }
 }

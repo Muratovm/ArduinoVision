@@ -1,4 +1,4 @@
-package com.michaelmuratov.arduinovision;
+package com.michaelmuratov.arduinovision.UART;
 
 import android.app.Activity;
 import android.bluetooth.BluetoothDevice;
@@ -11,6 +11,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
+
+import com.michaelmuratov.arduinovision.R;
+import com.michaelmuratov.arduinovision.VisionActivity;
 
 import java.util.List;
 

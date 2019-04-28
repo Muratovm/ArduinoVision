@@ -12,7 +12,6 @@ import android.util.Log;
 import android.widget.Button;
 import android.widget.Toast;
 
-import com.michaelmuratov.arduinovision.MyAdapter;
 import com.michaelmuratov.arduinovision.R;
 
 import java.util.ArrayList;
