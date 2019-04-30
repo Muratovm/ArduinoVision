@@ -8,21 +8,18 @@ import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.util.Log;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -43,10 +40,9 @@ import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.imgproc.Imgproc;
 
-import java.io.File;
 import java.io.IOException;
 import java.text.MessageFormat;
-import java.util.LinkedList;
+import java.util.ArrayList;
 
 import static com.michaelmuratov.arduinovision.FileSelection.onBrowse;
 
@@ -63,11 +59,10 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
     TextView tvBins;
     TextView tvDirection;
     TextView tvDelay;
+    Switch multi_switch;
 
     Model model;
-
-    LinkedList<int[]> float_bitmaps = new LinkedList<>();
-    LinkedList<Long> timestamps = new LinkedList<>();
+    Inferencer inferencer;
 
     boolean portrait = true;
 
@@ -130,11 +125,16 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
         tvDelay = findViewById(R.id.delay);
 
         model = new Model(this);
+        inferencer = new Inferencer(this);
+
+
         try {
-            model.load_internal_model("multi_image.tflite");
+            model.load_internal_model("model.tflite");
         } catch (IOException e) {
             e.printStackTrace();
         }
+
+
 
         if(!deviceAddress.equals("")){
             Log.d("SERVICE","STARTING LISTENER");
@@ -148,6 +148,7 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
             @Override
             public void onClick(View v) {
                 onBrowse(v,activity);
+
             }
         });
 
@@ -243,12 +244,34 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
 
         //final Bitmap demo_bitmap = Bitmap.createScaledBitmap(bitmap, resolution, resolution, false);
         final Bitmap scaled_bitmap = Bitmap.createScaledBitmap(bitmap, 50, 50, false);
-        doInference(scaled_bitmap);
+
+
+        int[] shape = model.get_Interpreter().getInputTensor(0).shape();
+        final ArrayList<String> output = inferencer.multiImageInference(model, scaled_bitmap, shape[shape.length-1]);
+
+
+        if(output != null){
+            if(UARTListener.mState == 20){
+                uartListener.sendCommand("F" + output.get(2)); // Forward for the sector
+                uartListener.sendCommand("S" + output.get(1)); // Side for the sector
+            }
+
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    tvDirection.setText(MessageFormat.format("Direction: {0}", output.get(0)));
+                    tvBins.setText(MessageFormat.format("Bins: {0}", output.get(3)));
+                    tvDelay.setText(MessageFormat.format("Delay: {0}", output.get(4)));
+
+                }
+            });
+        }
+
+
 
         final BitmapDrawable drawable = new BitmapDrawable(getResources(), bitmap);
         drawable.setAntiAlias(false);
         drawable.getPaint().setFilterBitmap(false);
-
 
         runOnUiThread(new Runnable() {
             @Override
@@ -256,87 +279,14 @@ public class VisionActivity extends AppCompatActivity implements CvCameraViewLis
                 image.setImageDrawable(drawable);
             }
         });
+
         return mGray;
     }
 
-    private void doInference(Bitmap bitmap) {
-        float_bitmaps.add(BitmapHelper.BitmapToArray(bitmap));
-        timestamps.add(System.currentTimeMillis());
-        if(float_bitmaps.size() < 10){
-            return;
-        }
-        else if(float_bitmaps.size() > 10){
-            float_bitmaps.pop();
-            timestamps.pop();
-        }
-
-        float_bitmaps.add(BitmapHelper.BitmapToArray(bitmap));
-        timestamps.add(System.currentTimeMillis());
-
-        float[][][][] float_pixels = new float[1][50][50][10];
-        float[][] outputVal = new float[1][9];
-
-        for(int i = 0; i < 50; i++){
-            for(int j = 0; j < 50; j++){
-                for(int b = 0; b < 10; b++){
-                    float_pixels[0][i][j][b] = (float) float_bitmaps.get(b)[i*50+j]/255;
-                }
-            }
-        }
-
-        try{
-            model.get_Interpreter().run(float_pixels,outputVal);
-        }catch (Exception e){
-            e.printStackTrace();
-            Toast.makeText(this,"Can't run interpreter", Toast.LENGTH_SHORT).show();
-        }
-
-        float max = 0;
-        int max_index = -1;
-
-        for(int i = 0; i < outputVal[0].length; i++){
-            if(outputVal[0][i] > max){
-                max_index = i;
-                max = outputVal[0][i];
-            }
-        }
-
-        if(max_index == 4){
-            max_index = 1; //go back instead of stopping
-        }
-
-        StringBuilder bins = new StringBuilder("{");
-
-        for(int i =0; i < outputVal[0].length; i++){
-            if(i == max_index){
-                bins.append("1");
-            }
-            else{
-                bins.append("0");
-            }
-            if(i<outputVal[0].length-1){
-                bins.append(",");
-            }
-        }
-        bins.append("}");
-
-        String[] output = Data.getSector(max_index);
-
-        if(UARTListener.mState == 20){
-            uartListener.sendCommand("F" + output[2]); // Forward for the sector
-            uartListener.sendCommand("S" + output[1]); // Side for the sector
-        }
-
-        final String final_bins = bins.toString();
-        final String final_direction = output[0];   // label for the sector
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                tvDelay.setText("Delay: "+(System.currentTimeMillis() - timestamps.getLast()));
-                tvDirection.setText(MessageFormat.format("Direction: {0}", final_direction));
-                tvBins.setText(MessageFormat.format("Bins: {0}", final_bins));
-
-            }
-        });
+    @Override
+    public void onBackPressed(){
+        Intent intent = new Intent(activity, MainActivity.class);
+        activity.startActivity(intent);
+        activity.finish();
     }
 }
